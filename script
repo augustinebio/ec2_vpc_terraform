@@ -1,0 +1,195 @@
+# Declare the provider
+provider "aws" {
+  region = "us-east-2" 
+}
+
+# Create a VPC
+resource "aws_vpc" "your_main_vpc" {
+  cidr_block = "0.0.0.0/0"
+  tags = {
+    Name = "your_main_vpc"
+  }
+}
+
+# Create an internet gateway
+resource "aws_internet_gateway" "gw" {
+  vpc_id = aws_vpc.your_main_vpc.id
+}
+
+# Create public subnets
+resource "aws_subnet" "public_subnet1" {
+  vpc_id            = aws_vpc.your_main_vpc.id
+  cidr_block        = "0.0.0.0/0"
+  availability_zone = "us-east-2a"
+  tags = {
+    Name = "your_main_vpc-subnet-public1-us-east-2a"
+  }
+}
+
+resource "aws_subnet" "public_subnet2" {
+  vpc_id            = aws_vpc.your_main_vpc.id
+  cidr_block        = "0.0.0.0/0"
+  availability_zone = "us-east-2b"
+  tags = {
+    Name = "your_main_vpc-subnet-public2-us-east-2b"
+  }
+}
+
+# Create private subnets
+resource "aws_subnet" "private_subnet1" {
+  vpc_id            = aws_vpc.your_main_vpc.id
+  cidr_block        = "0.0.0.0/0"
+  availability_zone = "us-east-2a"
+  tags = {
+    Name = "your_main_vpc-subnet-private1-us-east-2a"
+  }
+}
+
+resource "aws_subnet" "private_subnet2" {
+  vpc_id            = aws_vpc.your_main_vpc.id
+  cidr_block        = "0.0.0.0/0"
+  availability_zone = "us-east-2b"
+  tags = {
+    Name = "your_main_vpc-subnet-private2-us-east-2b"
+  }
+}
+
+# Create route tables
+resource "aws_route_table" "public_route_table" {
+  vpc_id = aws_vpc.your_main_vpc.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.gw.id
+  }
+  tags = {
+    Name = "your_main_vpc-rtb-public"
+  }
+}
+
+resource "aws_route_table" "private_route_table1" {
+  vpc_id = aws_vpc.your_main_vpc.id
+  tags = {
+    Name = "your_main_vpc-rtb-private1-us-east-2a"
+  }
+}
+
+resource "aws_route_table" "private_route_table2" {
+  vpc_id = aws_vpc.your_main_vpc.id
+  tags = {
+    Name = "your_main_vpc-rtb-private2-us-east-2b"
+  }
+}
+
+# Associate route tables with subnets
+resource "aws_route_table_association" "public_association_subnet1" {
+  subnet_id      = aws_subnet.public_subnet1.id
+  route_table_id = aws_route_table.public_route_table.id
+}
+
+resource "aws_route_table_association" "public_association_subnet2" {
+  subnet_id      = aws_subnet.public_subnet2.id
+  route_table_id = aws_route_table.public_route_table.id
+}
+
+resource "aws_route_table_association" "private_association_subnet1" {
+  subnet_id      = aws_subnet.private_subnet1.id
+  route_table_id = aws_route_table.private_route_table1.id
+}
+
+resource "aws_route_table_association" "private_association_subnet2" {
+  subnet_id      = aws_subnet.private_subnet2.id
+  route_table_id = aws_route_table.private_route_table2.id
+}
+
+# Create NAT gateways
+resource "aws_eip" "nat_eip_public1" {
+  vpc      = true
+}
+
+resource "aws_nat_gateway" "nat_gateway_public1" {
+  allocation_id = aws_eip.nat_eip_public1.id
+  subnet_id     = aws_subnet.public_subnet1.id
+}
+
+resource "aws_eip" "nat_eip_public2" {
+  vpc      = true
+}
+
+resource "aws_nat_gateway" "nat_gateway_public2" {
+  allocation_id = aws_eip.nat_eip_public2.id
+  subnet_id     = aws_subnet.public_subnet2.id
+}
+
+# Create VPC endpoint for S3
+resource "aws_vpc_endpoint" "s3_endpoint" {
+  vpc_id           = aws_vpc.your_main_vpc.id
+  service_name     = "com.amazonaws.us-east-2.s3"
+  route_table_ids  = [aws_route_table.private_route_table1.id, aws_route_table.private_route_table2.id]
+}
+
+# Create a security group for EC2 instance
+resource "aws_security_group" "ec2_security_group" {
+  vpc_id = aws_vpc.your_main_vpc.id
+ 
+  # Allow SSH access from specific IP range
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Allow HTTP access from specific IP range
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Allow HTTP alternate port access from specific IP range
+  ingress {
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  # Allow outbound internet access
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  tags = {
+    Name = "ec2-security-group"
+  }
+}
+
+# Create an EC2 instance
+resource "aws_instance" "your_jenkins_instance" {
+  ami             = data.aws_ami.ubuntu.id
+  instance_type   = "t2.medium"
+  subnet_id       = aws_subnet.private_subnet1.id  # Update with the desired subnet
+  key_name        = "your-jenkins"
+  tags = {
+    Name        = "your_jenkins_server"
+    Environment = "aws-your-infrastructure"
+  }
+}
+
+# Data source to filter Ubuntu AMI
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-*"]
+  }
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+  owners = ["099720109477"]  # Canonical
+}
